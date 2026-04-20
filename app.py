@@ -110,7 +110,8 @@ def process_text(chat_id: int, user_id: int, text: str):
         try:
             event = calendar.create_event(intent)
             start = intent["start_datetime"].replace("T", " ")[:16]
-            send(chat_id, f"Added!\n\n{intent['title']}\n{start}\n{event.get('htmlLink', '')}")
+            recur = f"\nRepeats: {intent['recurrence']}" if intent.get("recurrence") else ""
+            send(chat_id, f"Added!\n\n{intent['title']}\n{start}{recur}\n{event.get('htmlLink', '')}")
         except Exception:
             logger.exception("create_event failed")
             send(chat_id, "Failed to add event. Please try again.")

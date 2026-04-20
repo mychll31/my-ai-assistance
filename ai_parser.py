@@ -15,7 +15,15 @@ Current time: {now} (timezone: {timezone})
 Intents and their JSON shapes:
 
 CALENDAR — schedule or create a calendar event:
-{{"type":"calendar","title":"...","start_datetime":"YYYY-MM-DDTHH:MM:SS","end_datetime":"YYYY-MM-DDTHH:MM:SS","description":"","location":""}}
+{{"type":"calendar","title":"...","start_datetime":"YYYY-MM-DDTHH:MM:SS","end_datetime":"YYYY-MM-DDTHH:MM:SS","description":"","location":"","recurrence":null}}
+
+recurrence must be a valid RRULE string (RFC 5545) or null. Examples:
+- "every Monday" → "RRULE:FREQ=WEEKLY;BYDAY=MO"
+- "every weekday" → "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"
+- "every day" → "RRULE:FREQ=DAILY"
+- "every month on the 1st" → "RRULE:FREQ=MONTHLY;BYMONTHDAY=1"
+- "every year" → "RRULE:FREQ=YEARLY"
+- one-time event → null
 
 EMAIL_LIST — check inbox / show unread emails:
 {{"type":"email_list"}}

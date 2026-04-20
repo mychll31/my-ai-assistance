@@ -127,4 +127,6 @@ class CalendarService:
             "start": {"dateTime": event_data["start_datetime"], "timeZone": tz},
             "end": {"dateTime": event_data["end_datetime"], "timeZone": tz},
         }
+        if event_data.get("recurrence"):
+            body["recurrence"] = [event_data["recurrence"]]
         return service.events().insert(calendarId="primary", body=body).execute()
