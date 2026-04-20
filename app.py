@@ -74,9 +74,9 @@ def do_inbox(chat_id: int, user_id: int):
         return
     try:
         emails = gmail.list_unread()
-    except Exception:
+    except Exception as e:
         logger.exception("list_unread failed")
-        send(chat_id, "Failed to fetch emails. Try /auth to reconnect.")
+        send(chat_id, f"Failed to fetch emails: {e}\n\nTry /auth to reconnect.")
         return
     _inbox_cache[user_id] = emails
     if not emails:
