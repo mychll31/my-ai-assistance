@@ -4,9 +4,26 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from anthropic import Anthropic
 
-client = Anthropic()
+def _call_llm(prompt: str) -> str:
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        from anthropic import Anthropic
+        response = Anthropic().messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=512,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.content[0].text.strip()
+    if os.environ.get("OPENAI_API_KEY"):
+        from openai import OpenAI
+        response = OpenAI().chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=512,
+            response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return (response.choices[0].message.content or "").strip()
+    raise RuntimeError("No LLM key set — provide ANTHROPIC_API_KEY or OPENAI_API_KEY")
 
 _PROMPT = """You are a personal assistant bot. Classify the user's message as one of these intents and return ONLY a JSON object — no other text.
 
@@ -62,13 +79,7 @@ def parse_intent(message: str, timezone: str = "UTC", inbox: list[dict] | None =
 
     prompt = _PROMPT.format(now=now, timezone=timezone, inbox_context=inbox_context, message=message)
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=512,
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    text = response.content[0].text.strip()
+    text = _call_llm(prompt)
     match = re.search(r'\{.*\}', text, re.DOTALL)
     if not match:
         return None

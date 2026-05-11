@@ -154,10 +154,15 @@ class handler(BaseHTTPRequestHandler):
         message = body.get("message") or body.get("edited_message") or {}
         chat_id = message.get("chat", {}).get("id")
         user_id = message.get("from", {}).get("id")
+        chat_type = message.get("chat", {}).get("type", "private")
+        is_group = chat_type in ("group", "supergroup")
         text = (message.get("text") or "").strip()
         voice = message.get("voice")
 
-        if chat_id and (not OWNER_ID or user_id == OWNER_ID):
+        logger.info("update chat_id=%s user_id=%s chat_type=%s is_group=%s owner=%s has_text=%s has_voice=%s",
+                    chat_id, user_id, chat_type, is_group, OWNER_ID, bool(text), bool(voice))
+
+        if chat_id and (is_group or not OWNER_ID or user_id == OWNER_ID):
             if text:
                 self._handle_text(chat_id, user_id, text)
             elif voice:
