@@ -159,8 +159,7 @@ class handler(BaseHTTPRequestHandler):
         text = (message.get("text") or "").strip()
         voice = message.get("voice")
 
-        logger.info("update chat_id=%s user_id=%s chat_type=%s is_group=%s owner=%s has_text=%s has_voice=%s",
-                    chat_id, user_id, chat_type, is_group, OWNER_ID, bool(text), bool(voice))
+        print(f"[webhook] chat_id={chat_id} user_id={user_id} chat_type={chat_type} is_group={is_group} owner={OWNER_ID} has_text={bool(text)} has_voice={bool(voice)}", flush=True)
 
         if chat_id and (is_group or not OWNER_ID or user_id == OWNER_ID):
             if text:

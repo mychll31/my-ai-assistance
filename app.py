@@ -249,10 +249,14 @@ def webhook():
     message = data.get("message") or data.get("edited_message") or {}
     chat_id = message.get("chat", {}).get("id")
     user_id = message.get("from", {}).get("id")
+    chat_type = message.get("chat", {}).get("type", "private")
+    is_group = chat_type in ("group", "supergroup")
     text = (message.get("text") or "").strip()
     voice = message.get("voice")
 
-    if chat_id and (not OWNER_ID or user_id == OWNER_ID):
+    print(f"[webhook] chat_id={chat_id} user_id={user_id} chat_type={chat_type} is_group={is_group} owner={OWNER_ID} has_text={bool(text)} has_voice={bool(voice)}", flush=True)
+
+    if chat_id and (is_group or not OWNER_ID or user_id == OWNER_ID):
         if text:
             handle_text(chat_id, user_id, text)
         elif voice:
