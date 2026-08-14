@@ -1,7 +1,8 @@
-.env
+# Every .env variant — .env.prod once slipped through and blocked a push
+.env*
+!.env.example
 data/
 __pycache__/
 *.pyc
 .venv/
 .vercel
-.env*.local
