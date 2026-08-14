@@ -51,7 +51,7 @@ Make sure you have the following installed before starting:
 4. Enter a username ending in `bot` (e.g. `myassistant_bot`)
 5. BotFather will reply with your **bot token** — looks like:
    ```
-   8720726913:AAEqnXdOxvwmkot4rAZ5b9iW1uvjSRUCrPc
+   8720726913:AAEqnXdOxvwmkot4rAZ5b9iW1uvnYTEcPL
    ```
    Save this — you'll need it as `TELEGRAM_BOT_TOKEN`.
 
