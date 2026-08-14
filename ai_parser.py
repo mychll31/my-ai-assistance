@@ -23,7 +23,24 @@ def _call_llm(prompt: str) -> str:
             messages=[{"role": "user", "content": prompt}],
         )
         return (response.choices[0].message.content or "").strip()
-    raise RuntimeError("No LLM key set — provide ANTHROPIC_API_KEY or OPENAI_API_KEY")
+    if os.environ.get("GROQ_API_KEY"):
+        # Groq is OpenAI-compatible, so the same client works against their base URL.
+        # Model is overridable — Groq retires model IDs periodically.
+        from openai import OpenAI
+        client = OpenAI(
+            api_key=os.environ["GROQ_API_KEY"],
+            base_url="https://api.groq.com/openai/v1",
+        )
+        response = client.chat.completions.create(
+            model=os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            max_tokens=512,
+            response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return (response.choices[0].message.content or "").strip()
+    raise RuntimeError(
+        "No LLM key set — provide ANTHROPIC_API_KEY, OPENAI_API_KEY or GROQ_API_KEY"
+    )
 
 _PROMPT = """You are a personal assistant bot. Classify the user's message as one of these intents and return ONLY a JSON object — no other text.
 

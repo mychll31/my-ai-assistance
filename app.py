@@ -256,13 +256,22 @@ def webhook():
 
     print(f"[webhook] chat_id={chat_id} user_id={user_id} chat_type={chat_type} is_group={is_group} owner={OWNER_ID} has_text={bool(text)} has_voice={bool(voice)}", flush=True)
 
+    # Always answer 200. Telegram redelivers any update that doesn't get a 2xx,
+    # so an exception here turns one bad message into an infinite retry loop.
     if chat_id and (is_group or not OWNER_ID or user_id == OWNER_ID):
-        if text:
-            handle_text(chat_id, user_id, text)
-        elif voice:
-            handle_voice(chat_id, user_id, voice["file_id"])
-        elif message.get("audio") or message.get("document"):
-            send(chat_id, "Please send a voice message (hold mic button in Telegram).")
+        try:
+            if text:
+                handle_text(chat_id, user_id, text)
+            elif voice:
+                handle_voice(chat_id, user_id, voice["file_id"])
+            elif message.get("audio") or message.get("document"):
+                send(chat_id, "Please send a voice message (hold mic button in Telegram).")
+        except Exception as e:
+            logger.exception("update handling failed")
+            try:
+                send(chat_id, f"Something went wrong: {type(e).__name__}: {e}")
+            except Exception:
+                logger.exception("failed to notify user")
 
     return "OK"
 

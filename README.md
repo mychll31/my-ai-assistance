@@ -367,10 +367,13 @@ Google Calendar & Gmail are connected.
 | `OAUTH_REDIRECT_URI` | Must match what's in Google Cloud Console | `https://your-app.vercel.app/api/callback` |
 | `GOOGLE_REFRESH_TOKEN` | Obtained after first `/auth` flow | `1//0abc...` |
 | `ANTHROPIC_API_KEY` | For AI intent parsing (Claude) | `sk-ant-...` |
-| `GROQ_API_KEY` | For voice transcription (Whisper) | `gsk_...` |
+| `GROQ_API_KEY` | Voice transcription, and intent parsing if no other LLM key is set | `gsk_...` |
+| `GROQ_MODEL` | Optional — override the Groq parsing model | `llama-3.3-70b-versatile` |
 | `TIMEZONE` | Your local timezone | `Asia/Manila` |
 
-> `OPENAI_API_KEY` can be used instead of `GROQ_API_KEY` for voice transcription if preferred.
+> **You need at least one LLM key**: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GROQ_API_KEY`. They're tried in that order.
+> A `GROQ_API_KEY` on its own is enough to run the whole bot — it covers both transcription and parsing.
+> Groq retires model IDs periodically; if parsing starts failing with a model error, set `GROQ_MODEL` rather than editing code.
 
 ---
 

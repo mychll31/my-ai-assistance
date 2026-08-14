@@ -148,6 +148,19 @@ def process_text(chat_id: int, user_id: int, text: str):
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
+        # Always answer 200. Telegram redelivers any update that doesn't get a 2xx,
+        # so an exception here turns one bad message into an infinite retry loop.
+        try:
+            self._process_update()
+        except Exception:
+            logger.exception("webhook failed")
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def _process_update(self):
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length)) if length else {}
 
@@ -162,17 +175,16 @@ class handler(BaseHTTPRequestHandler):
         print(f"[webhook] chat_id={chat_id} user_id={user_id} chat_type={chat_type} is_group={is_group} owner={OWNER_ID} has_text={bool(text)} has_voice={bool(voice)}", flush=True)
 
         if chat_id and (is_group or not OWNER_ID or user_id == OWNER_ID):
-            if text:
-                self._handle_text(chat_id, user_id, text)
-            elif voice:
-                self._handle_voice(chat_id, user_id, voice["file_id"])
-            elif message.get("audio") or message.get("document"):
-                send(chat_id, "Please send a voice message (hold mic button in Telegram).")
-
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"OK")
+            try:
+                if text:
+                    self._handle_text(chat_id, user_id, text)
+                elif voice:
+                    self._handle_voice(chat_id, user_id, voice["file_id"])
+                elif message.get("audio") or message.get("document"):
+                    send(chat_id, "Please send a voice message (hold mic button in Telegram).")
+            except Exception as e:
+                logger.exception("update handling failed")
+                send(chat_id, f"Something went wrong: {type(e).__name__}: {e}")
 
     def _handle_text(self, chat_id: int, user_id: int, text: str):
         if text == "/start":

@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-08-14T15:14:58.890Z",
+  "projectRoot": "/Users/mychll/Documents/projects/telegram-calendar-bot",
+  "structure": {
+    "hasPackageJson": false,
+    "hasTsConfig": false,
+    "hasClaudeConfig": true,
+    "hasClaudeFlow": true
+  },
+  "scannedAt": 1786720498890
+}
