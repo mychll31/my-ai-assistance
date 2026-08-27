@@ -74,8 +74,33 @@ EMAIL_REPLY — reply to an email:
 EMAIL_SEND — compose and send a new email:
 {{"type":"email_send","to":"email@example.com","subject":"...","body":"..."}}
 
+TASK_ADD — a to-do: something to get done, not an appointment:
+{{"type":"task_add","title":"...","due":"YYYY-MM-DD" or null,"notes":""}}
+
+TASK_LIST — show open tasks ("what are my tasks", "show my todos", "what do I need to do"):
+{{"type":"task_list"}}
+
+TASK_DONE — mark an EXISTING task finished ("done with the groceries", "finished the
+report", "I've called the bank", "mark 2 as done", "complete number 3"):
+{{"type":"task_done","index":null,"title":null}}
+- If the user names a number from the list, put it in "index".
+- Otherwise put the words that identify the task in "title" — "finished the groceries"
+  → title "groceries". Leave "index" null.
+- A message reporting something ALREADY DONE is never TASK_ADD. Past tense
+  ("finished", "did", "I've ...") means TASK_DONE.
+
 UNKNOWN — doesn't fit any above:
 {{"type":"unknown"}}
+
+Calendar vs task — decide on what the user is asking for, not on whether a time appears:
+- "remind me to ...", "add a task", "todo", "don't forget to ..." → TASK_ADD, ALWAYS.
+  This wins even when a time of day is given.
+- Meetings, appointments, calls, lunches, anything scheduled with other people → CALENDAR
+- Otherwise: errands and chores you do alone → TASK_ADD; things that occupy a slot
+  in your day → CALENDAR
+- A task stores only a date, never a time. If a TASK_ADD message names a time
+  ("at 1pm"), put the date in "due" and put the time in "notes" — e.g. "1pm".
+  Never turn a "remind me to" into a calendar event just to keep the time.
 
 Calendar rules:
 - Default duration: 1 hour if not specified

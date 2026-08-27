@@ -1,5 +1,7 @@
 import logging
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests as http
 from flask import Flask, request
@@ -7,6 +9,8 @@ from flask import Flask, request
 from ai_parser import parse_intent
 from calendar_service import CalendarService, format_conflicts
 from gmail_service import GmailService
+from googleapiclient.errors import HttpError
+from tasks_service import TasksService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,11 +18,13 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 calendar = CalendarService()
 gmail = GmailService(calendar)
+tasks = TasksService(calendar)
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 OWNER_ID = int(os.environ.get("AUTHORIZED_USER_ID") or "0")
 TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 _inbox_cache: dict[int, list[dict]] = {}
+_tasks_cache: dict[int, list[dict]] = {}
 
 
 def send(chat_id: int, text: str):
@@ -88,6 +94,103 @@ def do_inbox(chat_id: int, user_id: int):
     send(chat_id, "\n".join(lines))
 
 
+def _needs_reauth(chat_id: int, e: Exception) -> bool:
+    """Tasks fails with 403 two different ways, and the fixes are unrelated."""
+    if not (isinstance(e, HttpError) and e.resp.status == 403):
+        return False
+    body = (getattr(e, "content", b"") or b"").decode("utf-8", "replace")
+    if "accessNotConfigured" in body or "has not been used in project" in body:
+        send(chat_id, "The Google Tasks API isn't enabled on your Google Cloud project.\n\n"
+                      "Enable it at console.cloud.google.com \u2192 APIs & Services \u2192 Library "
+                      "\u2192 Google Tasks API, then try again in a minute.")
+    else:
+        send(chat_id, "Tasks isn't authorized on this token yet.\n\n"
+                      "Run /auth, then update GOOGLE_REFRESH_TOKEN in Vercel and redeploy.")
+    return True
+
+
+def resolve_task(intent: dict, items: list[dict]) -> int | None:
+    idx = intent.get("index")
+    if idx is not None:
+        i = int(idx) - 1
+        return i if 0 <= i < len(items) else None
+    title = (intent.get("title") or "").lower()
+    if title:
+        for i, t in enumerate(items):
+            if title in t["title"].lower():
+                return i
+    return None
+
+
+def do_task_add(chat_id: int, intent: dict):
+    try:
+        tasks.add(intent["title"], due=intent.get("due"), notes=intent.get("notes", ""))
+    except Exception as e:
+        if _needs_reauth(chat_id, e):
+            return
+        raise
+    due = f"\nDue {intent['due']}" if intent.get("due") else ""
+    # Tasks has no time of day, so anything the user said about one lives in notes.
+    note = f"\nNote: {intent['notes']}" if intent.get("notes") else ""
+    send(chat_id, f"Task added\n\n{intent['title']}{due}{note}")
+
+
+def do_tasks(chat_id: int, user_id: int):
+    try:
+        items = tasks.list_open()
+    except Exception as e:
+        if _needs_reauth(chat_id, e):
+            return
+        raise
+    _tasks_cache[user_id] = items
+    if not items:
+        send(chat_id, "No open tasks.")
+        return
+    lines = ["Your tasks:\n"]
+    for i, t in enumerate(items, 1):
+        due = f"  (due {t['due']})" if t["due"] else ""
+        lines.append(f"{i}. {t['title']}{due}")
+    send(chat_id, "\n".join(lines))
+
+
+def do_task_done(chat_id: int, user_id: int, intent: dict):
+    try:
+        items = _tasks_cache.get(user_id)
+        if not items:
+            # A recycled instance loses the cache; refetch rather than making the user run /tasks.
+            items = tasks.list_open()
+            _tasks_cache[user_id] = items
+        idx = resolve_task(intent, items)
+        if idx is None:
+            send(chat_id, "Couldn't find that task. Use /tasks to see the list.")
+            return
+        task = items[idx]
+        tasks.complete(task["id"])
+    except Exception as e:
+        if _needs_reauth(chat_id, e):
+            return
+        raise
+    _tasks_cache[user_id] = [t for t in items if t["id"] != task["id"]]
+    send(chat_id, f"Done: {task['title']}")
+
+
+def send_daily_digest():
+    owner = int(os.environ.get("AUTHORIZED_USER_ID") or "0")
+    if not owner:
+        logger.error("AUTHORIZED_USER_ID is not set — nobody to send the digest to")
+        return
+    tz = os.environ.get("TIMEZONE", "UTC")
+    today = datetime.now(ZoneInfo(tz)).strftime("%Y-%m-%d")
+    due = tasks.due_today(today)
+    if not due:
+        return  # Silent by design — no message on a clear day.
+    lines = ["Due today:\n"]
+    for i, t in enumerate(due, 1):
+        overdue = "  (overdue)" if t["due"] and t["due"] < today else ""
+        lines.append(f"{i}. {t['title']}{overdue}")
+    send(owner, "\n".join(lines))
+
+
 def process_text(chat_id: int, user_id: int, text: str):
     if not calendar.is_authenticated():
         send(chat_id, "Connect Google first: /auth")
@@ -121,6 +224,15 @@ def process_text(chat_id: int, user_id: int, text: str):
         except Exception:
             logger.exception("create_event failed")
             send(chat_id, "Failed to add event. Please try again.")
+
+    elif t == "task_add":
+        do_task_add(chat_id, intent)
+
+    elif t == "task_list":
+        do_tasks(chat_id, user_id)
+
+    elif t == "task_done":
+        do_task_done(chat_id, user_id, intent)
 
     elif t == "email_list":
         do_inbox(chat_id, user_id)
@@ -177,7 +289,11 @@ def handle_text(chat_id: int, user_id: int, text: str):
              "• /read 2 — read email #2\n"
              "• /reply 2 I'll be there! — reply\n"
              "• Or describe it naturally / by voice\n\n"
-             "Commands: /auth /status /inbox")
+             "Tasks:\n"
+             "\u2022 /tasks \u2014 show open tasks\n"
+             "\u2022 /done 2 \u2014 mark task #2 finished\n"
+             "\u2022 Or: remind me to buy groceries Friday\n\n"
+             "Commands: /auth /status /inbox /tasks")
     elif text == "/auth":
         send(chat_id, f"Authorize Google Calendar & Gmail:\n\n{calendar.get_auth_url()}")
     elif text == "/status":
@@ -187,6 +303,14 @@ def handle_text(chat_id: int, user_id: int, text: str):
             send(chat_id, "Not connected. Use /auth")
     elif text == "/inbox":
         do_inbox(chat_id, user_id)
+    elif text == "/tasks":
+        do_tasks(chat_id, user_id)
+    elif text.startswith("/done"):
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].isdigit():
+            send(chat_id, "Usage: /done <number>  e.g. /done 2")
+            return
+        do_task_done(chat_id, user_id, {"index": int(parts[1])})
     elif text.startswith("/read"):
         parts = text.split(maxsplit=1)
         if len(parts) < 2 or not parts[1].isdigit():
@@ -306,6 +430,22 @@ def callback():
             )
         return "<h2>Connected!</h2><p>Check Telegram for next steps.</p>"
     return "<h2>Failed.</h2><p>Try /auth again in Telegram.</p>", 400
+
+
+@app.route("/api/cron")
+def cron():
+    secret = os.environ.get("CRON_SECRET", "")
+    if not secret:
+        # Fail closed: an unset secret would leave this endpoint open to anyone.
+        logger.error("CRON_SECRET is not set — refusing to run the digest")
+        return "CRON_SECRET not configured", 503
+    if request.headers.get("Authorization") != f"Bearer {secret}":
+        return "unauthorized", 401
+    try:
+        send_daily_digest()
+    except Exception:
+        logger.exception("daily digest failed")
+    return "OK"
 
 
 @app.route("/health")

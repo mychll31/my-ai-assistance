@@ -17,6 +17,7 @@ TOKEN_FILE = Path(os.environ.get("DATA_DIR", "./data")) / "tokens.json"
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/tasks",
 ]
 _AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
 _TOKEN_URI = "https://oauth2.googleapis.com/token"
