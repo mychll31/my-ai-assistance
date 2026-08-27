@@ -1,16 +1,55 @@
 # Telegram Calendar & Gmail Bot
 
-A personal AI assistant Telegram bot that manages your Google Calendar and Gmail using natural language and voice messages.
+A personal AI assistant Telegram bot that runs your Google Calendar, Tasks, Gmail,
+Zoom meetings and contact invitations from plain language — typed or spoken.
 
-**Features:**
-- Create calendar events (including recurring) by describing them naturally
-- Warns when a new event overlaps something already on your calendar
-- Track to-dos in Google Tasks — add, list, and complete them from Telegram
-- A daily digest of what's due today
-- Check and read unread Gmail messages
-- Reply to and compose emails
-- Voice message support (transcribed via Whisper)
-- Runs on Vercel (serverless) or locally
+```
+you  ▸  Zoom with the team tomorrow 3pm, invite marketing
+bot  ▸  Added!
+        Zoom with the team
+        2026-08-29 15:00
+        https://calendar.google.com/...
+
+        Zoom: https://us06web.zoom.us/j/8321...
+
+        Invited 2 from "marketing"
+
+        ⚠️ Conflicts with:
+        • Client review  (2:00 PM – 4:00 PM)
+```
+
+## Features
+
+### Calendar & scheduling
+- **Natural language events** — `Meeting with Sarah tomorrow 2pm`
+- **Recurring events** — `Team standup every weekday at 9am`, translated to RRULE
+- **Conflict warnings** — tells you when a new event overlaps something you already
+  have. All-day events count; events marked *Free* and back-to-back events don't
+- **Zoom meetings** — say "zoom" and it books a real meeting, attaching the join link
+- **Invitations** — `invite marketing` resolves a Google Contacts label or a contact
+  name to real invitees and emails them
+
+### Tasks & reminders
+- **Capture** — `Remind me to renew the domain Friday`, stored in Google Tasks
+- **Review** — `/tasks` lists them numbered
+- **Complete** — `/done 2`, or just `finished the groceries`
+- **Daily digest** — a morning message with what's due today, including overdue
+
+### Mail
+- **Read** — `/inbox` and `/read 2`
+- **Reply** — `/reply 2 Sure, I'll be there` or `Reply to Sarah saying I'll be there`
+- **Compose** — send a new email by describing it
+
+### How you talk to it
+- **Voice messages** — transcribed via Whisper, then handled like text
+- **Group chats** — works in groups as well as direct messages
+- **One message, many actions** — the bot classifies intent; there's no command syntax
+  to memorise beyond a few shortcuts
+
+### Under the hood
+- **Bring your own LLM** — Anthropic, OpenAI, or Groq, tried in that order
+- **Fails soft** — a broken Zoom, contact lookup, or conflict check never costs you
+  the calendar event
 
 ---
 
@@ -80,21 +119,51 @@ Make sure you have the following installed before starting:
 3. Name it (e.g. `telegram-bot`) → **Create**
 4. Make sure the new project is selected in the dropdown
 
+> A project has **two** identifiers: a project **ID** like `tg-calendar-493903` (in
+> console URLs) and a project **number** like `386693840120`. Google's API errors
+> quote the *number*, the console shows the *ID*. They refer to the same project —
+> the project number is the leading digits of your OAuth client ID.
+
 ### 3.2 Enable APIs
 
-Three APIs must be enabled. Go to [APIs & Services → Library](https://console.cloud.google.com/apis/library),
-search for each by name, and click **Enable**:
+**Four** APIs must be enabled. Go to
+[APIs & Services → Library](https://console.cloud.google.com/apis/library), search for
+each by name, click it, then **Enable**:
 
-| API | Needed for |
-|---|---|
-| **Google Calendar API** | Creating events, conflict detection |
-| **Gmail API** | Reading, replying to, and sending mail |
-| **Google Tasks API** | To-dos, `/tasks`, `/done`, the daily digest |
+| API | Needed for | Breaks if missing |
+|---|---|---|
+| **Google Calendar API** | Events, conflict detection | Everything |
+| **Gmail API** | Reading, replying, sending mail | `/inbox`, `/read`, `/reply` |
+| **Google Tasks API** | To-dos and the daily digest | `/tasks`, `/done`, digest |
+| **People API** | Contact labels → event invitees | `invite ...` |
 
-> **Don't skip Google Tasks API.** A disabled API returns HTTP **403** — the same
-> status as an unauthorized token — so it presents as a credentials problem when it
-> isn't. If task commands report an authorization error, verify this first. The error
-> text contains `has not been used in project <number>` when the API is the cause.
+Direct links — replace `YOUR_PROJECT_ID`:
+
+```
+https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=YOUR_PROJECT_ID
+https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=YOUR_PROJECT_ID
+https://console.cloud.google.com/apis/library/tasks.googleapis.com?project=YOUR_PROJECT_ID
+https://console.cloud.google.com/apis/library/people.googleapis.com?project=YOUR_PROJECT_ID
+```
+
+> **Check the project selector before clicking Enable.** Enabling an API in the wrong
+> project is the most common reason the click "doesn't take" — the console happily
+> enables it somewhere else and reports success.
+
+#### Why a disabled API is hard to diagnose
+
+A disabled API returns HTTP **403** — the same status as an unauthorized token. The
+message is what distinguishes them:
+
+| Error message | Cause | Fix |
+|---|---|---|
+| `<Name> API has not been used in project <number> before or it is disabled` | API not enabled | This section |
+| `Request had insufficient authentication scopes` | Token predates the scope | [3.4](#34-publish-the-app) then re-auth |
+
+**These two mask each other.** Google checks scopes *first*, so a token missing the
+scope reports "insufficient authentication scopes" even when the API is *also*
+disabled. Fixing the scope then reveals the second error, which looks like the fix
+failed. If you hit a 403, verify **both** — see [3.6](#36-verify-the-google-setup).
 
 ### 3.3 Configure the OAuth consent screen
 
@@ -105,15 +174,28 @@ search for each by name, and click **Enable**:
    - **User support email**: your email
    - **Developer contact email**: your email
 4. Click **Save and Continue**
-5. On the **Scopes** step, click **Add or Remove Scopes** and add:
-   - `https://www.googleapis.com/auth/calendar.events`
-   - `https://www.googleapis.com/auth/gmail.modify`
-   - `https://www.googleapis.com/auth/tasks`
+5. On the **Scopes** step, click **Add or Remove Scopes** and add all four:
+
+   | Scope | Grants |
+   |---|---|
+   | `https://www.googleapis.com/auth/calendar.events` | Read and write events |
+   | `https://www.googleapis.com/auth/gmail.modify` | Read, send, and label mail |
+   | `https://www.googleapis.com/auth/tasks` | Read and write tasks |
+   | `https://www.googleapis.com/auth/contacts.readonly` | Read contacts and labels |
+
 6. Click **Update** → **Save and Continue**
 7. On the **Test Users** step, click **Add Users** and add your Google account email
 8. Click **Save and Continue** → **Back to Dashboard**
 
-### 3.3b Publish the app
+> **`SCOPES` in `calendar_service.py` is what actually gets requested.** This consent
+> screen list is what Google displays and verifies against. If the two disagree, the
+> code wins for what lands on your token — so a scope added here but not in code is
+> never granted, and vice versa.
+>
+> `calendar.events` deliberately does **not** grant `calendarList`. A 403 from that
+> endpoint is expected; the bot never calls it.
+
+### 3.4 Publish the app
 
 On the same consent screen — newer consoles label this **Google Auth Platform →
 Audience** — set **Publishing status** to **In production**.
@@ -129,9 +211,10 @@ Audience** — set **Publishing status** to **In production**.
 > personal bot.
 >
 > If you leave it in Testing, the account you sign in with **must** be on the Test
-> Users list, or consent fails with `Error 403: access_denied`.
+> Users list, or consent fails with `Error 403: access_denied — has not completed the
+> Google verification process`.
 
-### 3.4 Create OAuth credentials
+### 3.5 Create OAuth credentials
 
 1. Go to [APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials)
 2. Click **Create Credentials** → **OAuth client ID**
@@ -140,12 +223,53 @@ Audience** — set **Publishing status** to **In production**.
 5. Under **Authorized redirect URIs**, add your callback URL:
    - **For Vercel deployment**: `https://your-app-name.vercel.app/api/callback`
    - **For local development**: `http://localhost:8080/oauth/callback`
-   
+
    > You can add both — just separate entries.
 6. Click **Create**
 7. A dialog shows your credentials — copy and save:
    - **Client ID** → `GOOGLE_CLIENT_ID`
    - **Client Secret** → `GOOGLE_CLIENT_SECRET`
+
+### 3.6 Verify the Google setup
+
+Run this after you have a refresh token (section 7). It checks every scope and every
+API in one pass, so you never have to guess which of the two 403s you are looking at:
+
+```bash
+python3 - <<'EOF'
+import requests
+CLIENT_ID     = "..."   # GOOGLE_CLIENT_ID
+CLIENT_SECRET = "..."   # GOOGLE_CLIENT_SECRET
+REFRESH_TOKEN = "..."   # GOOGLE_REFRESH_TOKEN
+
+tok = requests.post("https://oauth2.googleapis.com/token", data={
+    "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
+    "refresh_token": REFRESH_TOKEN, "grant_type": "refresh_token"}, timeout=20).json()
+if "access_token" not in tok:
+    raise SystemExit(f"token refresh failed: {tok}")
+
+granted = set(tok["scope"].split())
+for s in ("calendar.events", "gmail.modify", "tasks", "contacts.readonly"):
+    full = f"https://www.googleapis.com/auth/{s}"
+    print(f"scope {'OK     ' if full in granted else 'MISSING'}  {s}")
+
+h = {"Authorization": f"Bearer {tok['access_token']}"}
+for label, url in (
+    ("Calendar", "https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=1"),
+    ("Gmail   ", "https://gmail.googleapis.com/gmail/v1/users/me/profile"),
+    ("Tasks   ", "https://tasks.googleapis.com/tasks/v1/users/@me/lists"),
+    ("People  ", "https://people.googleapis.com/v1/contactGroups?pageSize=10"),
+):
+    r = requests.get(url, headers=h, timeout=20)
+    note = ""
+    if r.status_code != 200:
+        m = (r.json().get("error") or {}).get("message", "")
+        note = "  <- API DISABLED" if "has not been used in project" in m else f"  <- {m[:70]}"
+    print(f"api   {label} {r.status_code}{note}")
+EOF
+```
+
+All four scopes `OK` and all four APIs `200` means the Google side is fully set up.
 
 ---
 
@@ -572,6 +696,25 @@ you need the alert.
 Each morning a cron posts what's due today, including anything overdue. It stays
 silent on a clear day.
 
+### Inviting people
+
+Say **"invite"** followed by a contact label or a person's name:
+
+| Message | What it does |
+|---|---|
+| `Team sync 3pm, invite marketing` | Invites everyone with the **marketing** label |
+| `Client call 2pm, invite Ana and Ben` | Invites those two contacts |
+| `Meeting with Ana 3pm` | Invites nobody — no "invite", no invitations |
+
+Google emails each invitee and they can RSVP. **There is no unsend**, and deleting the
+event sends cancellation notices on top, so the reply always states exactly who was
+invited.
+
+Only people already in **Google Contacts** can be invited. Raw email addresses are
+refused. If a name isn't a contact, is ambiguous, or has no email address, the event
+is still created and the reply says what went wrong — the bot never guesses which
+person you meant.
+
 ### Zoom meetings
 
 Say **"zoom"** and the bot books a real Zoom meeting and attaches the join link:
@@ -665,6 +808,23 @@ Refresh tokens are **scope-bound**. Adding a scope to `SCOPES` in
 - **It sends nothing when nothing is due**, so silence is the normal state. To tell
   "quiet" from "broken", check the cron's run history in the Vercel dashboard.
 
+### Invitations, internally
+
+`contacts_service.py` resolves names against the People API with two calls —
+`contactGroups.list` for labels and `connections.list` with
+`personFields=names,emailAddresses,memberships`. Group membership arrives on each
+contact, so a label resolves by filtering locally rather than fetching each member.
+
+`people.searchContacts` is deliberately not used: it requires a warm-up request before
+returning results, a well-known source of "works on the second try" bugs.
+
+Resolution order per name is label first, then individual contact. Anything ambiguous
+resolves to *nobody* — with real email at stake, guessing is worse than asking again.
+
+Attendee emails go on the event as `attendees`, and `create_event` sends
+`sendUpdates="all"`. That parameter defaults to `none`, so without it Google adds
+attendees without telling them.
+
 ### Zoom meetings, internally
 
 `zoom_service.py` exchanges the three `ZOOM_*` credentials for a one-hour access token
@@ -694,14 +854,14 @@ python3 -m pytest tests/ -q
 
 **`Error 403: access_denied` — "has not completed the Google verification process"**
 Your OAuth app is in **Testing** and the account you're signing in with isn't on the
-Test Users list. Either add it there, or better, publish the app — see [3.3b](#33b-publish-the-app).
+Test Users list. Either add it there, or better, publish the app — see [3.4](#34-publish-the-app).
 
 **"Google hasn't verified this app" during OAuth**
 Click **Advanced** → **Go to [app name] (unsafe)**. Expected for a personal bot.
 
 **Google access stops working roughly every 7 days**
 The app is still in **Testing** mode, where refresh tokens expire after 7 days.
-Publish it — see [3.3b](#33b-publish-the-app).
+Publish it — see [3.4](#34-publish-the-app).
 
 **"Tasks isn't authorized on this token yet"**
 Your token predates the `auth/tasks` scope. Re-run `/auth` and replace
@@ -746,6 +906,20 @@ vs `Added!` with a timestamp. If it guesses wrong, rephrase.
 Google Tasks stores a due *date* only. A time you mention is preserved in the task's
 notes and shown in the confirmation, but **no alert fires at that time**. Use a
 calendar event when you need to be pinged.
+
+**Nobody got invited**
+The name must match a contact label or a contact in **Google Contacts**. Check the
+reply — it names what failed: not found, ambiguous, or no email address. Raw email
+addresses are refused by design.
+
+**"Request had insufficient authentication scopes" on an invite**
+Your token predates `contacts.readonly`. Re-run `/auth` — see
+[Changing OAuth scopes](#changing-oauth-scopes).
+
+**The wrong people got invited**
+There is no unsend. Delete the event (which sends cancellations) and recreate it.
+Ambiguous names invite nobody, so this means a label matched something unintended —
+check the label names in [contacts.google.com](https://contacts.google.com).
 
 **No conflict warning on an event that overlaps**
 Only your **primary** calendar is checked. Events marked **Free** are skipped, and

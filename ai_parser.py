@@ -52,7 +52,12 @@ Current time: {now} (timezone: {timezone})
 Intents and their JSON shapes:
 
 CALENDAR — schedule or create a calendar event:
-{{"type":"calendar","title":"...","start_datetime":"YYYY-MM-DDTHH:MM:SS","end_datetime":"YYYY-MM-DDTHH:MM:SS","description":"","location":"","recurrence":null,"zoom":false}}
+{{"type":"calendar","title":"...","start_datetime":"YYYY-MM-DDTHH:MM:SS","end_datetime":"YYYY-MM-DDTHH:MM:SS","description":"","location":"","recurrence":null,"zoom":false,"invite":[]}}
+
+Put names in "invite" ONLY when the message says "invite" ("team sync 3pm, invite
+marketing", "invite Ana and Ben"). Each entry is one contact label or one person's
+name, exactly as the user said it — never an email address, and never invent names.
+"Meeting with Belle" invites nobody; only an explicit "invite" does.
 
 Set "zoom" to true ONLY when the message actually says "zoom" ("zoom with Belle 3pm",
 "team sync 2pm on zoom"). Every true books a real meeting on the user's Zoom account,

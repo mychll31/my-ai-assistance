@@ -8,6 +8,7 @@ from flask import Flask, request
 
 from ai_parser import parse_intent
 from calendar_service import CalendarService, format_conflicts
+from contacts_service import ContactsService
 from gmail_service import GmailService
 from zoom_service import ZoomNotConfigured, ZoomService, duration_minutes
 from googleapiclient.errors import HttpError
@@ -20,6 +21,7 @@ app = Flask(__name__)
 calendar = CalendarService()
 gmail = GmailService(calendar)
 tasks = TasksService(calendar)
+contacts = ContactsService(calendar)
 zoom = ZoomService()
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 OWNER_ID = int(os.environ.get("AUTHORIZED_USER_ID") or "0")
@@ -218,6 +220,29 @@ def attach_zoom(intent: dict) -> str:
     return f"\n\nZoom: {link}"
 
 
+def attach_invites(intent: dict) -> str:
+    """Resolve invite names to contact emails. Returns a line for the reply."""
+    names = intent.get("invite") or []
+    if not names:
+        return ""
+    try:
+        result = contacts.resolve(names)
+    except Exception:
+        # Emailing nobody is recoverable; losing the event is not.
+        logger.exception("contact lookup failed")
+        return "\n\nCouldn't look up contacts — nobody was invited."
+
+    if result["emails"]:
+        intent["attendees"] = result["emails"]
+
+    lines = []
+    for m in result["matched"]:
+        lines.append(f"Invited {m['count']} from \"{m['name']}\""
+                     if m["kind"] == "label" else f"Invited {m['name']}")
+    lines.extend(result["problems"])
+    return "\n\n" + "\n".join(lines) if lines else ""
+
+
 def process_text(chat_id: int, user_id: int, text: str):
     if not calendar.is_authenticated():
         send(chat_id, "Connect Google first: /auth")
@@ -239,6 +264,7 @@ def process_text(chat_id: int, user_id: int, text: str):
         send(chat_id, "Adding event...")
         try:
             zoom_note = attach_zoom(intent)
+            invite_note = attach_invites(intent)
             # Looked up before inserting, so the new event cannot match itself.
             conflicts = calendar.find_conflicts(intent)
             event = calendar.create_event(intent)
@@ -246,6 +272,7 @@ def process_text(chat_id: int, user_id: int, text: str):
             recur = f"\nRepeats: {intent['recurrence']}" if intent.get("recurrence") else ""
             msg = f"Added!\n\n{intent['title']}\n{start}{recur}\n{event.get('htmlLink', '')}"
             msg += zoom_note
+            msg += invite_note
             warning = format_conflicts(conflicts)
             if warning:
                 msg += f"\n\n{warning}"

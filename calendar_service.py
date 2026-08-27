@@ -18,6 +18,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/tasks",
+    "https://www.googleapis.com/auth/contacts.readonly",
 ]
 _AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
 _TOKEN_URI = "https://oauth2.googleapis.com/token"
@@ -132,7 +133,15 @@ class CalendarService:
         }
         if event_data.get("recurrence"):
             body["recurrence"] = [event_data["recurrence"]]
-        return service.events().insert(calendarId="primary", body=body).execute()
+
+        attendees = event_data.get("attendees") or []
+        if attendees:
+            body["attendees"] = [{"email": e} for e in attendees]
+        # Defaults to "none" in the API — without this Google adds attendees silently.
+        send_updates = "all" if attendees else "none"
+        return service.events().insert(
+            calendarId="primary", body=body, sendUpdates=send_updates,
+        ).execute()
 
     def find_conflicts(self, event_data: dict) -> list[dict]:
         """Existing events overlapping the new event's first occurrence.
