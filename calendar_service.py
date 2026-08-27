@@ -2,7 +2,9 @@ import json
 import logging
 import os
 import urllib.parse
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests as http
 from google.auth.transport.requests import Request
@@ -130,3 +132,70 @@ class CalendarService:
         if event_data.get("recurrence"):
             body["recurrence"] = [event_data["recurrence"]]
         return service.events().insert(calendarId="primary", body=body).execute()
+
+    def find_conflicts(self, event_data: dict) -> list[dict]:
+        """Existing events overlapping the new event's first occurrence.
+
+        Only ever a warning, so any failure yields no conflicts rather than
+        raising — a flaky lookup must not stop the event from being created.
+        """
+        tz = os.environ.get("TIMEZONE", "UTC")
+        try:
+            service = build("calendar", "v3", credentials=self.creds)
+            # timeMin/timeMax are exclusive bounds on end/start respectively,
+            # which is exactly overlap — an event ending at 3pm does not
+            # collide with one starting at 3pm. singleEvents expands
+            # recurrences so a weekly standup shows up on the day asked about.
+            result = service.events().list(
+                calendarId="primary",
+                timeMin=_rfc3339(event_data["start_datetime"], tz),
+                timeMax=_rfc3339(event_data["end_datetime"], tz),
+                singleEvents=True,
+                orderBy="startTime",
+            ).execute()
+        except Exception:
+            logger.exception("conflict lookup failed")
+            return []
+
+        conflicts = []
+        for item in result.get("items", []):
+            if item.get("status") == "cancelled":
+                continue
+            if item.get("transparency") == "transparent":
+                continue  # marked Free — deliberately not a commitment
+            start, end = item.get("start", {}), item.get("end", {})
+            conflicts.append({
+                "title": item.get("summary") or "(no title)",
+                "start": start.get("dateTime") or start.get("date"),
+                "end": end.get("dateTime") or end.get("date"),
+                "all_day": "date" in start,
+            })
+        return conflicts
+
+
+def _rfc3339(naive_or_aware: str, tz: str) -> str:
+    """Google needs an offset; the parser emits local wall-clock time without one."""
+    dt = datetime.fromisoformat(naive_or_aware)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo(tz))
+    return dt.isoformat()
+
+
+def _clock(iso: str) -> str:
+    """12-hour time without %-I, which is not portable across platforms."""
+    dt = datetime.fromisoformat(iso)
+    return f"{dt.hour % 12 or 12}:{dt.minute:02d} {'AM' if dt.hour < 12 else 'PM'}"
+
+
+def format_conflicts(conflicts: list[dict]) -> str:
+    """The warning appended to a confirmation. Empty string when the slot is clear."""
+    if not conflicts:
+        return ""
+    lines = ["\u26a0\ufe0f Conflicts with:"]
+    for c in conflicts:
+        if c["all_day"]:
+            when = "all day"
+        else:
+            when = f"{_clock(c['start'])} \u2013 {_clock(c['end'])}"
+        lines.append(f"\u2022 {c['title']}  ({when})")
+    return "\n".join(lines)

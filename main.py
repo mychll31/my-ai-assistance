@@ -11,7 +11,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 from ai_parser import parse_intent
-from calendar_service import CalendarService
+from calendar_service import CalendarService, format_conflicts
 from gmail_service import GmailService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -72,11 +72,15 @@ async def _process_text(text: str, update: Update, context: ContextTypes.DEFAULT
     t = intent["type"]
 
     if t == "calendar":
+        # Looked up before inserting, so the new event cannot match itself.
+        conflicts = await asyncio.to_thread(calendar.find_conflicts, intent)
         event = await asyncio.to_thread(calendar.create_event, intent)
         start = intent["start_datetime"].replace("T", " ")[:16]
-        await reply(
-            f"Added!\n\n{intent['title']}\n{start}\n{event.get('htmlLink', '')}"
-        )
+        msg = f"Added!\n\n{intent['title']}\n{start}\n{event.get('htmlLink', '')}"
+        warning = format_conflicts(conflicts)
+        if warning:
+            msg += f"\n\n{warning}"
+        await reply(msg)
 
     elif t == "email_list":
         emails = await asyncio.to_thread(gmail.list_unread)

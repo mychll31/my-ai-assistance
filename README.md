@@ -391,6 +391,24 @@ Just describe the event naturally:
 | `Set meeting every Monday at 3pm with AI Labs` | Creates a weekly recurring Monday event |
 | `Monthly review on the 1st at 2pm` | Creates a monthly recurring event |
 
+**Conflict warnings.** The event is always created, but if it overlaps something
+already on your primary calendar the confirmation says so:
+
+```
+Added!
+
+Meeting with Belle
+2026-08-28 15:00
+https://calendar.google.com/...
+
+⚠️ Conflicts with:
+• Team offsite  (7:00 AM – 5:00 PM)
+```
+
+Events you've marked **Free** don't count, and back-to-back events (one ending at
+3pm, the next starting at 3pm) aren't treated as overlapping. All-day events do
+count. For a recurring event, only the first occurrence is checked.
+
 ### Email
 
 | Command | What it does |

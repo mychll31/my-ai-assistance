@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import requests as http
 from ai_parser import parse_intent
-from calendar_service import CalendarService
+from calendar_service import CalendarService, format_conflicts
 from gmail_service import GmailService
 
 logging.basicConfig(level=logging.INFO)
@@ -110,9 +110,15 @@ def process_text(chat_id: int, user_id: int, text: str):
 
     if t == "calendar":
         send(chat_id, "Adding event...")
+        # Looked up before inserting, so the new event cannot match itself.
+        conflicts = calendar.find_conflicts(intent)
         event = calendar.create_event(intent)
         start = intent["start_datetime"].replace("T", " ")[:16]
-        send(chat_id, f"Added!\n\n{intent['title']}\n{start}\n{event.get('htmlLink', '')}")
+        msg = f"Added!\n\n{intent['title']}\n{start}\n{event.get('htmlLink', '')}"
+        warning = format_conflicts(conflicts)
+        if warning:
+            msg += f"\n\n{warning}"
+        send(chat_id, msg)
 
     elif t == "email_list":
         do_inbox(chat_id, user_id)
