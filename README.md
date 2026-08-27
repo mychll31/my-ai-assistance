@@ -19,13 +19,14 @@ A personal AI assistant Telegram bot that manages your Google Calendar and Gmail
 1. [Prerequisites](#1-prerequisites)
 2. [Create Your Telegram Bot](#2-create-your-telegram-bot)
 3. [Set Up Google Cloud Project](#3-set-up-google-cloud-project)
-4. [Local Installation](#4-local-installation)
-5. [Deploy to Vercel](#5-deploy-to-vercel)
-6. [Connect Google Account](#6-connect-google-account)
-7. [Environment Variables Reference](#7-environment-variables-reference)
-8. [Usage Guide](#8-usage-guide)
-9. [How It's Wired](#9-how-its-wired)
-10. [Troubleshooting](#troubleshooting)
+4. [Set Up Zoom (Optional)](#4-set-up-zoom-optional)
+5. [Local Installation](#5-local-installation)
+6. [Deploy to Vercel](#6-deploy-to-vercel)
+7. [Connect Google Account](#7-connect-google-account)
+8. [Environment Variables Reference](#8-environment-variables-reference)
+9. [Usage Guide](#9-usage-guide)
+10. [How It's Wired](#10-how-its-wired)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -148,16 +149,96 @@ Audience** — set **Publishing status** to **In production**.
 
 ---
 
-## 4. Local Installation
+## 4. Set Up Zoom (Optional)
 
-### 4.1 Clone the repository
+Skip this if you don't want Zoom links. Without it everything else works, and a
+"zoom" request creates the calendar event with a note that Zoom isn't configured.
+
+### 4.1 Create a Server-to-Server OAuth app
+
+1. Go to [marketplace.zoom.us](https://marketplace.zoom.us) → **Develop** → **Build App**
+2. Choose **Server-to-Server OAuth**
+
+   > Not a *user* OAuth app. Server-to-Server needs no consent flow and no refresh
+   > tokens — three static credentials is the whole story, which is the right shape
+   > for a bot only you use.
+3. Name it anything, then **Create**
+4. On the **App Credentials** page copy all three values:
+
+   | Zoom shows | Goes in |
+   |---|---|
+   | Account ID | `ZOOM_ACCOUNT_ID` |
+   | Client ID | `ZOOM_CLIENT_ID` |
+   | Client Secret | `ZOOM_CLIENT_SECRET` |
+
+5. Fill in the **Information** tab (name, contact email) — Zoom won't let you activate
+   until it's complete
+
+### 4.2 Grant the meeting scope
+
+On the **Scopes** tab → **Add Scopes** → search **meeting** → grant:
+
+```
+meeting:write:meeting:admin
+```
+
+The friendly UI labels this **"View and manage all user meetings"**.
+
+> **Grant only this one.** A Server-to-Server token carries *every* scope the app
+> holds, so a broad grant means a broadly-privileged secret. This bot creates
+> meetings and nothing else — Account, Dashboard, and Data Request scopes are not
+> needed and include things like sub-account deletion and ownership transfer.
+
+### 4.3 Activate the app
+
+**Activation** tab → **Activate your app**. Add scopes *before* activating.
+
+### 4.4 Verify it works
+
+Both setup steps fail differently, and the two errors look nothing alike:
+
+| What you see | What it means |
+|---|---|
+| `invalid_client — The app has been disabled by the developer` on the token request | App not activated (4.3) |
+| Token succeeds, then `code 4711 — Invalid access token, does not contain scopes: [meeting:write:meeting, meeting:write:meeting:admin]` | Meeting scope not granted (4.2) |
+| In Telegram: *"Couldn't create the Zoom meeting — event added without a link."* | Either of the above — check the runtime logs for which |
+
+To check both at once without going through the bot:
+
+```bash
+python3 - <<'EOF'
+import base64, requests
+ACCOUNT_ID, CLIENT_ID, CLIENT_SECRET = "...", "...", "..."
+b = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+d = requests.post("https://zoom.us/oauth/token",
+                  params={"grant_type": "account_credentials", "account_id": ACCOUNT_ID},
+                  headers={"Authorization": f"Basic {b}"}, timeout=20).json()
+print("token:", "OK" if "access_token" in d else d)
+print("meeting scopes:", [s for s in d.get("scope", "").split() if s.startswith("meeting:")] or "NONE")
+EOF
+```
+
+`token: OK` plus a non-empty meeting scope list means you're done.
+
+### 4.5 Add the credentials
+
+Locally, in `.env`; on Vercel, see [6.3](#63-add-environment-variables).
+
+> Free Zoom accounts cap group meetings at 40 minutes. Deleting a calendar event
+> does **not** delete the Zoom meeting it created.
+
+---
+
+## 5. Local Installation
+
+### 5.1 Clone the repository
 
 ```bash
 git clone https://github.com/your-username/telegram-calendar-bot.git
 cd telegram-calendar-bot
 ```
 
-### 4.2 Create a virtual environment
+### 5.2 Create a virtual environment
 
 ```bash
 python3.13 -m venv .venv
@@ -165,13 +246,13 @@ source .venv/bin/activate        # macOS/Linux
 # .venv\Scripts\activate         # Windows
 ```
 
-### 4.3 Install dependencies
+### 5.3 Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4.4 Create the `.env` file
+### 5.4 Create the `.env` file
 
 Create a file named `.env` in the project root:
 
@@ -185,11 +266,17 @@ ANTHROPIC_API_KEY=your_anthropic_api_key
 GROQ_API_KEY=your_groq_api_key
 TIMEZONE=Asia/Manila
 # GOOGLE_REFRESH_TOKEN=  # leave blank for now — added after first /auth
+
+# Optional — Zoom links. See section 4. Omit and "zoom" requests still create the
+# event, with a note that Zoom isn't configured.
+ZOOM_ACCOUNT_ID=your_zoom_account_id
+ZOOM_CLIENT_ID=your_zoom_client_id
+ZOOM_CLIENT_SECRET=your_zoom_client_secret
 ```
 
 Replace each value with your actual credentials.
 
-### 4.5 Run the bot locally
+### 5.5 Run the bot locally
 
 ```bash
 python main.py
@@ -203,7 +290,7 @@ Bot polling started
 
 The bot now runs in **polling mode** — it continuously checks Telegram for new messages.
 
-### 4.6 Connect Google (local)
+### 5.6 Connect Google (local)
 
 Since the OAuth callback needs to be publicly reachable, you have two options:
 
@@ -220,9 +307,9 @@ Skip ahead to Section 5, deploy, run `/auth` on Vercel, then come back to local 
 
 ---
 
-## 5. Deploy to Vercel
+## 6. Deploy to Vercel
 
-### 5.1 Log in to Vercel
+### 6.1 Log in to Vercel
 
 ```bash
 vercel login
@@ -230,7 +317,7 @@ vercel login
 
 Follow the browser prompt to authenticate.
 
-### 5.2 Link the project
+### 6.2 Link the project
 
 From inside the project directory:
 
@@ -247,7 +334,7 @@ Answer the prompts:
 
 This creates a `.vercel/project.json` file linking your local folder to the Vercel project.
 
-### 5.3 Add environment variables
+### 6.3 Add environment variables
 
 Add each variable to Vercel's production environment:
 
@@ -261,6 +348,11 @@ vercel env add ANTHROPIC_API_KEY
 vercel env add GROQ_API_KEY
 vercel env add TIMEZONE
 vercel env add CRON_SECRET
+
+# Optional — Zoom links, see section 4
+vercel env add ZOOM_ACCOUNT_ID
+vercel env add ZOOM_CLIENT_ID
+vercel env add ZOOM_CLIENT_SECRET
 ```
 
 For each command, paste the value when prompted and select **Production** (press Space to toggle, Enter to confirm).
@@ -274,7 +366,7 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 
 > `GOOGLE_REFRESH_TOKEN` is added later — after the first `/auth` flow.
 
-### 5.4 Deploy to production
+### 6.4 Deploy to production
 
 ```bash
 vercel --prod
@@ -285,7 +377,7 @@ When the deploy completes, you'll see your production URL:
 Production: https://your-app-name.vercel.app
 ```
 
-### 5.5 Update the OAuth redirect URI
+### 6.5 Update the OAuth redirect URI
 
 Now that you have your Vercel URL:
 
@@ -311,7 +403,7 @@ Redeploy to apply:
 vercel --prod
 ```
 
-### 5.6 Register the Telegram webhook
+### 6.6 Register the Telegram webhook
 
 Tell Telegram to send updates to your Vercel URL. Run this once:
 
@@ -333,11 +425,11 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 
 ---
 
-## 6. Connect Google Account
+## 7. Connect Google Account
 
 This step is done **once** after deployment. It authorizes the bot to access your Google Calendar and Gmail.
 
-### 6.1 Start the auth flow
+### 7.1 Start the auth flow
 
 In Telegram, send your bot:
 ```
@@ -346,14 +438,14 @@ In Telegram, send your bot:
 
 The bot replies with an authorization URL. Open it in your browser.
 
-### 6.2 Authorize Google
+### 7.2 Authorize Google
 
 1. Sign in with your Google account (the test user you added in step 3.3)
 2. You may see a warning: **"Google hasn't verified this app"** — click **Continue**
 3. Grant the requested permissions (Calendar and Gmail access)
 4. You'll be redirected to a page saying **"Connected!"**
 
-### 6.3 Save the refresh token
+### 7.3 Save the refresh token
 
 The bot will send you a Telegram message like:
 
@@ -380,7 +472,7 @@ Then redeploy:
 vercel --prod
 ```
 
-### 6.4 Verify the connection
+### 7.4 Verify the connection
 
 Send `/status` to your bot. It should reply:
 ```
@@ -389,7 +481,7 @@ Google Calendar & Gmail are connected.
 
 ---
 
-## 7. Environment Variables Reference
+## 8. Environment Variables Reference
 
 | Variable | Description | Example |
 |---|---|---|
@@ -403,6 +495,9 @@ Google Calendar & Gmail are connected.
 | `GROQ_API_KEY` | Voice transcription, and intent parsing if no other LLM key is set | `gsk_...` |
 | `GROQ_MODEL` | Optional — override the Groq parsing model | `openai/gpt-oss-120b` |
 | `CRON_SECRET` | Required for the daily task digest — any random string | `a7f3...` |
+| `ZOOM_ACCOUNT_ID` | Optional — Zoom Server-to-Server OAuth app. See [section 4](#4-set-up-zoom-optional) | `YAeU...` |
+| `ZOOM_CLIENT_ID` | Optional — same app | `jty2...` |
+| `ZOOM_CLIENT_SECRET` | Optional — same app | `5wl4...` |
 | `TIMEZONE` | Your local timezone | `Asia/Manila` |
 
 > **You need at least one LLM key**: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GROQ_API_KEY`. They're tried in that order.
@@ -421,7 +516,7 @@ Google Calendar & Gmail are connected.
 
 ---
 
-## 8. Usage Guide
+## 9. Usage Guide
 
 ### Calendar
 
@@ -477,6 +572,23 @@ you need the alert.
 Each morning a cron posts what's due today, including anything overdue. It stays
 silent on a clear day.
 
+### Zoom meetings
+
+Say **"zoom"** and the bot books a real Zoom meeting and attaches the join link:
+
+| Message | What it does |
+|---|---|
+| `Zoom with Belle tomorrow 3pm` | Creates the event *and* a Zoom meeting |
+| `Team sync 2pm on zoom` | Same |
+| `Meeting with Belle tomorrow 3pm` | Plain event, no Zoom |
+
+The word **"zoom"** is the only trigger. "Call", "video", "online" and "remote" will
+not book one — every booking is a real meeting on your Zoom account, so it is
+deliberately opt-in. Deleting the calendar event does **not** delete the Zoom meeting.
+
+If Zoom fails or isn't configured, the calendar event is still created and the reply
+says why. A missing video link never costs you the entry.
+
 ### Email
 
 | Command | What it does |
@@ -506,7 +618,7 @@ Hold the microphone button in Telegram to send a voice message. The bot transcri
 
 ---
 
-## 9. How It's Wired
+## 10. How It's Wired
 
 ### Vercel runs `app.py`, not the `api/` folder
 
@@ -523,8 +635,8 @@ there no matter how correct the file is. To add an endpoint on Vercel, add an
 |---|---|
 | `app.py` | Vercel (Flask), Fly.io |
 | `api/webhook.py`, `api/callback.py` | Other `http.server` hosts |
-| `main.py` | Local long-polling runner |
-| `ai_parser.py`, `calendar_service.py`, `gmail_service.py`, `tasks_service.py` | Shared by all of the above |
+| `main.py` | Local long-polling runner — **behind**: has calendar + conflicts, but no tasks or Zoom |
+| `ai_parser.py`, `calendar_service.py`, `gmail_service.py`, `tasks_service.py`, `zoom_service.py` | Shared by all of the above |
 
 Because the entry points are duplicated, a behavior change usually has to land in
 more than one of them. The tests in `tests/test_tasks.py` are parametrized over both
@@ -552,6 +664,20 @@ Refresh tokens are **scope-bound**. Adding a scope to `SCOPES` in
   refuses to run, rather than leaving a public endpoint that anyone could trigger.
 - **It sends nothing when nothing is due**, so silence is the normal state. To tell
   "quiet" from "broken", check the cron's run history in the Vercel dashboard.
+
+### Zoom meetings, internally
+
+`zoom_service.py` exchanges the three `ZOOM_*` credentials for a one-hour access token
+(`grant_type=account_credentials`, HTTP Basic auth), cached in-process and renewed a
+minute early so it can't expire mid-request. Meetings are created as `type: 2`
+(scheduled) at the event's own start time and computed duration.
+
+The join URL goes in the event's `location` — which Google Calendar renders as a
+clickable link — and is appended to the description. Google's native `conferenceData`
+is deliberately not used: third-party conferencing there requires a registered
+Calendar add-on, so an arbitrary Zoom link cannot be injected into it.
+
+Setup lives in [section 4](#4-set-up-zoom-optional).
 
 ### Running the tests
 
@@ -644,7 +770,7 @@ Be explicit: "every Monday" or "every weekday" rather than just "weekly".
 
 **A new endpoint returns 404 on Vercel**
 You probably added an `api/*.py` file. Vercel serves `app.py` — add an `@app.route`
-instead. See [How It's Wired](#9-how-its-wired).
+instead. See [How It's Wired](#10-how-its-wired).
 
 **An env var change didn't take effect**
 Vercel env changes require a redeploy: `vercel --prod`.

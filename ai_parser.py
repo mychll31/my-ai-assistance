@@ -52,7 +52,11 @@ Current time: {now} (timezone: {timezone})
 Intents and their JSON shapes:
 
 CALENDAR — schedule or create a calendar event:
-{{"type":"calendar","title":"...","start_datetime":"YYYY-MM-DDTHH:MM:SS","end_datetime":"YYYY-MM-DDTHH:MM:SS","description":"","location":"","recurrence":null}}
+{{"type":"calendar","title":"...","start_datetime":"YYYY-MM-DDTHH:MM:SS","end_datetime":"YYYY-MM-DDTHH:MM:SS","description":"","location":"","recurrence":null,"zoom":false}}
+
+Set "zoom" to true ONLY when the message actually says "zoom" ("zoom with Belle 3pm",
+"team sync 2pm on zoom"). Every true books a real meeting on the user's Zoom account,
+so never infer it from "call", "video", "online" or "remote".
 
 recurrence must be a valid RRULE string (RFC 5545) or null. Examples:
 - "every Monday" → "RRULE:FREQ=WEEKLY;BYDAY=MO"

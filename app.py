@@ -9,6 +9,7 @@ from flask import Flask, request
 from ai_parser import parse_intent
 from calendar_service import CalendarService, format_conflicts
 from gmail_service import GmailService
+from zoom_service import ZoomNotConfigured, ZoomService, duration_minutes
 from googleapiclient.errors import HttpError
 from tasks_service import TasksService
 
@@ -19,6 +20,7 @@ app = Flask(__name__)
 calendar = CalendarService()
 gmail = GmailService(calendar)
 tasks = TasksService(calendar)
+zoom = ZoomService()
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 OWNER_ID = int(os.environ.get("AUTHORIZED_USER_ID") or "0")
 TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -191,6 +193,31 @@ def send_daily_digest():
     send(owner, "\n".join(lines))
 
 
+def attach_zoom(intent: dict) -> str:
+    """Book a Zoom meeting and fold the link into the event. Returns a line for the reply."""
+    if not intent.get("zoom"):
+        return ""
+    try:
+        meeting = zoom.create_meeting(
+            intent["title"],
+            intent["start_datetime"],
+            duration_minutes(intent["start_datetime"], intent["end_datetime"]),
+            os.environ.get("TIMEZONE", "UTC"),
+        )
+    except ZoomNotConfigured:
+        return "\n\nZoom isn't configured — event added without a link."
+    except Exception:
+        # A missing video link must never cost the calendar entry.
+        logger.exception("zoom meeting creation failed")
+        return "\n\nCouldn't create the Zoom meeting — event added without a link."
+
+    link = meeting["join_url"]
+    intent["location"] = link
+    description = (intent.get("description") or "").strip()
+    intent["description"] = f"{description}\n\nZoom: {link}".strip()
+    return f"\n\nZoom: {link}"
+
+
 def process_text(chat_id: int, user_id: int, text: str):
     if not calendar.is_authenticated():
         send(chat_id, "Connect Google first: /auth")
@@ -211,12 +238,14 @@ def process_text(chat_id: int, user_id: int, text: str):
     if t == "calendar":
         send(chat_id, "Adding event...")
         try:
+            zoom_note = attach_zoom(intent)
             # Looked up before inserting, so the new event cannot match itself.
             conflicts = calendar.find_conflicts(intent)
             event = calendar.create_event(intent)
             start = intent["start_datetime"].replace("T", " ")[:16]
             recur = f"\nRepeats: {intent['recurrence']}" if intent.get("recurrence") else ""
             msg = f"Added!\n\n{intent['title']}\n{start}{recur}\n{event.get('htmlLink', '')}"
+            msg += zoom_note
             warning = format_conflicts(conflicts)
             if warning:
                 msg += f"\n\n{warning}"
