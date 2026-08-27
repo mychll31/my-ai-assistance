@@ -368,7 +368,7 @@ Google Calendar & Gmail are connected.
 | `GOOGLE_REFRESH_TOKEN` | Obtained after first `/auth` flow | `1//0abc...` |
 | `ANTHROPIC_API_KEY` | For AI intent parsing (Claude) | `sk-ant-...` |
 | `GROQ_API_KEY` | Voice transcription, and intent parsing if no other LLM key is set | `gsk_...` |
-| `GROQ_MODEL` | Optional — override the Groq parsing model | `llama-3.3-70b-versatile` |
+| `GROQ_MODEL` | Optional — override the Groq parsing model | `openai/gpt-oss-120b` |
 | `TIMEZONE` | Your local timezone | `Asia/Manila` |
 
 > **You need at least one LLM key**: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GROQ_API_KEY`. They're tried in that order.

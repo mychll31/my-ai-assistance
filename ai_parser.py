@@ -32,8 +32,11 @@ def _call_llm(prompt: str) -> str:
             base_url="https://api.groq.com/openai/v1",
         )
         response = client.chat.completions.create(
-            model=os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            max_tokens=512,
+            model=os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b"),
+            # Groq's current default is a reasoning model — reasoning tokens are
+            # drawn from this budget, so it needs more headroom than the short
+            # JSON answer alone would suggest.
+            max_tokens=2048,
             response_format={"type": "json_object"},
             messages=[{"role": "user", "content": prompt}],
         )
